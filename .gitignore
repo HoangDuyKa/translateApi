@@ -1,0 +1,5 @@
+/translateApi/bin
+/translateApi/obj
+/translateApi/translateApi.csproj.user
+/.vs
+/translateApi/*.user
