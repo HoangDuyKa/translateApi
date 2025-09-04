@@ -3,3 +3,4 @@
 /translateApi/translateApi.csproj.user
 /.vs
 /translateApi/*.user
+/translateApi/*.json

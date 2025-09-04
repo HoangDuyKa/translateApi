@@ -1,71 +1,58 @@
 ﻿using translateApi.Interfaces;
 using translateApi.Models;
+using translateApi.Repositories;
 using static translateApi.Models.TranslateModel;
 
 namespace translateApi.Services
 {
     public class TranslateService : ITranslateService
     {
-        private readonly Dictionary<string, Dictionary<string, string>> _translations;
+        private readonly ITranslationRepository _translationRepository;
 
-        public TranslateService()
+        public TranslateService(ITranslationRepository translationRepository)
         {
-            // Tạo một số bản dịch mẫu (trong thực tế bạn sẽ tích hợp với Google Translate API hoặc Azure Translator)
-            _translations = new Dictionary<string, Dictionary<string, string>>
-            {
-                ["en"] = new Dictionary<string, string>
-                {
-                    ["hello"] = "xin chào",
-                    ["goodbye"] = "tạm biệt",
-                    ["thank you"] = "cảm ơn",
-                    ["yes"] = "có",
-                    ["no"] = "không"
-                },
-                ["vi"] = new Dictionary<string, string>
-                {
-                    ["xin chào"] = "hello",
-                    ["tạm biệt"] = "goodbye",
-                    ["cảm ơn"] = "thank you",
-                    ["có"] = "yes",
-                    ["không"] = "no"
-                }
-            };
+            _translationRepository = translationRepository;
         }
 
-        public Task<TranslateResponse> TranslateAsync(TranslateRequest request)
+        public async Task<TranslateResponse> TranslateAsync(TranslateRequest request)
         {
             try
             {
                 var response = new TranslateResponse();
 
-                // Đơn giản hóa: phát hiện ngôn ngữ và dịch
-                var detectedLang = DetectLanguage(request.Text);
-                response.DetectedLanguage = detectedLang;
+                // Phát hiện ngôn ngữ nếu là auto
+                var fromLang = request.FromLanguage == "auto"
+                    ? DetectLanguage(request.Text)
+                    : request.FromLanguage;
 
-                // Thực hiện dịch
-                var translatedText = Translate(request.Text.ToLower(), detectedLang, request.ToLanguage);
+                response.DetectedLanguage = fromLang;
 
-                if (!string.IsNullOrEmpty(translatedText))
+                // Tìm bản dịch trong database
+                var translation = await _translationRepository
+                    .FindTranslationAsync(request.Text, fromLang, request.ToLanguage);
+
+                if (translation != null)
                 {
-                    response.TranslatedText = translatedText;
+                    response.TranslatedText = translation.TranslatedText;
                     response.Success = true;
                 }
                 else
                 {
+                    // Nếu không tìm thấy, trả về text gốc
                     response.TranslatedText = request.Text;
                     response.Success = false;
-                    response.ErrorMessage = "Translation not found";
+                    response.ErrorMessage = "Translation not found in database";
                 }
 
-                return Task.FromResult(response);
+                return response;
             }
             catch (Exception ex)
             {
-                return Task.FromResult(new TranslateResponse
+                return new TranslateResponse
                 {
                     Success = false,
                     ErrorMessage = ex.Message
-                });
+                };
             }
         }
 
@@ -75,20 +62,6 @@ namespace translateApi.Services
             if (text.All(c => c <= 127)) // ASCII characters
                 return "en";
             return "vi";
-        }
-
-        private string Translate(string text, string fromLang, string toLang)
-        {
-            if (fromLang == toLang)
-                return text;
-
-            if (_translations.ContainsKey(fromLang) &&
-                _translations[fromLang].ContainsKey(text))
-            {
-                return _translations[fromLang][text];
-            }
-
-            return string.Empty;
         }
     }
 }

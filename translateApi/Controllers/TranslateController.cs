@@ -1,56 +1,118 @@
 ﻿using Microsoft.AspNetCore.Mvc;
-using translateApi.Interfaces;
 using translateApi.Models;
-using translateApi.Services;
+using translateApi.Repositories;
 using static translateApi.Models.TranslateModel;
 
 namespace translateApi.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class TranslateController : ControllerBase
+    public class TranslationsController : ControllerBase
     {
-        private readonly ITranslateService _translateService;
+        private readonly ITranslationRepository _translationRepository;
 
-        public TranslateController(ITranslateService translateService)
+        public TranslationsController(ITranslationRepository translationRepository)
         {
-            _translateService = translateService;
+            _translationRepository = translationRepository;
+        }
+
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<Translation>>> GetAllTranslations()
+        {
+            var translations = await _translationRepository.GetAllAsync();
+            return Ok(translations);
+        }
+
+        [HttpGet("{id}")]
+        public async Task<ActionResult<Translation>> GetTranslation(int id)
+        {
+            var translation = await _translationRepository.GetByIdAsync(id);
+            if (translation == null)
+            {
+                return NotFound();
+            }
+            return Ok(translation);
+        }
+
+        [HttpGet("search")]
+        public async Task<ActionResult<IEnumerable<Translation>>> SearchTranslations(
+            [FromQuery] string? searchTerm,
+            [FromQuery] string? fromLang,
+            [FromQuery] string? toLang)
+        {
+            var translations = await _translationRepository.SearchAsync(searchTerm, fromLang, toLang);
+            return Ok(translations);
         }
 
         [HttpPost]
-        public async Task<ActionResult<TranslateResponse>> Translate([FromBody] TranslateRequest request)
+        public async Task<ActionResult<Translation>> CreateTranslation([FromBody] TranslationCreateDto dto)
         {
-            if (string.IsNullOrWhiteSpace(request.Text))
+            if (!ModelState.IsValid)
             {
-                return BadRequest(new TranslateResponse
-                {
-                    Success = false,
-                    ErrorMessage = "Text is required"
-                });
+                return BadRequest(ModelState);
             }
 
-            var result = await _translateService.TranslateAsync(request);
+            // Kiểm tra xem đã tồn tại chưa
+            var existing = await _translationRepository
+                .FindTranslationAsync(dto.OriginalText, dto.FromLanguage, dto.ToLanguage);
 
-            if (result.Success)
+            if (existing != null)
             {
-                return Ok(result);
+                return Conflict("Translation already exists");
             }
 
-            return BadRequest(result);
+            var translation = new Translation
+            {
+                OriginalText = dto.OriginalText,
+                TranslatedText = dto.TranslatedText,
+                FromLanguage = dto.FromLanguage,
+                ToLanguage = dto.ToLanguage
+            };
+
+            var created = await _translationRepository.CreateAsync(translation);
+            return CreatedAtAction(nameof(GetTranslation), new { id = created.Id }, created);
         }
 
-        [HttpGet("languages")]
-        public ActionResult<object> GetSupportedLanguages()
+        [HttpPut("{id}")]
+        public async Task<ActionResult<Translation>> UpdateTranslation(int id, [FromBody] TranslationUpdateDto dto)
         {
-            return Ok(new
+            if (!ModelState.IsValid)
             {
-                languages = new[]
-                {
-                    new { code = "en", name = "English" },
-                    new { code = "vi", name = "Tiếng Việt" },
-                    new { code = "auto", name = "Auto Detect" }
-                }
-            });
+                return BadRequest(ModelState);
+            }
+
+            var existing = await _translationRepository.GetByIdAsync(id);
+            if (existing == null)
+            {
+                return NotFound();
+            }
+
+            // Cập nhật các field được cung cấp
+            if (!string.IsNullOrWhiteSpace(dto.OriginalText))
+                existing.OriginalText = dto.OriginalText;
+
+            if (!string.IsNullOrWhiteSpace(dto.TranslatedText))
+                existing.TranslatedText = dto.TranslatedText;
+
+            if (!string.IsNullOrWhiteSpace(dto.FromLanguage))
+                existing.FromLanguage = dto.FromLanguage;
+
+            if (!string.IsNullOrWhiteSpace(dto.ToLanguage))
+                existing.ToLanguage = dto.ToLanguage;
+
+            var updated = await _translationRepository.UpdateAsync(id, existing);
+            return Ok(updated);
+        }
+
+        [HttpDelete("{id}")]
+        public async Task<ActionResult> DeleteTranslation(int id)
+        {
+            var success = await _translationRepository.DeleteAsync(id);
+            if (!success)
+            {
+                return NotFound();
+            }
+            return NoContent();
         }
     }
 }
